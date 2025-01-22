@@ -1,4 +1,4 @@
-from src.data import get_datasets
+from src.extract_data import get_datasets
 
 
 def main():
