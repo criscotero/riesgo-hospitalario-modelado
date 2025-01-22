@@ -5,7 +5,7 @@ import re
 
 from src import config
 
-def get_datasets(
+def download_dataset(
         chunksize: int = 10000
 ) -> pd.DataFrame:
     """
@@ -26,3 +26,21 @@ def get_datasets(
     return pd.concat([
         df for df in pd.read_sas(file_path, chunksize=chunksize)
     ])
+
+
+def load_dataset(chunksize: int = 10000) -> pd.DataFrame:
+    """
+    Loads the dataset from disk (does not download it).
+
+    :param chunksize: Dataset chunk size (avoids memory overload).
+    :return: Raw dataframe with information of elderly people interviews.
+    """
+    file_path = os.path.join(config.DATASET_ROOT_PATH, config.DATASET_MHAS_C2)
+
+    # Check if the dataset file exists
+    if os.path.exists(file_path):
+        return pd.concat([
+            df for df in pd.read_sas(file_path, chunksize=chunksize)
+        ])
+    else:
+        raise FileNotFoundError(f"Dataset not found at {file_path}. Please download it first.")
