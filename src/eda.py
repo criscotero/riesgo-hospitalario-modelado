@@ -92,3 +92,24 @@ def plot_age_histogram(df: pd.DataFrame, age_column: str = 'r5agey', bin_width: 
 
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.show()
+
+
+    import pandas as pd
+
+def filter_age(df: pd.DataFrame, age_column: str = 'r5agey', min_age: int = 50) -> pd.DataFrame:
+    """
+    Removes all rows where the age is less than a specified minimum age.
+
+    Args:
+        df (pd.DataFrame): The dataframe containing the data.
+        age_column (str): The column name that represents age.
+        min_age (int): The minimum age threshold (default is 50).
+
+    Returns:
+        pd.DataFrame: A filtered dataframe with only participants aged min_age or older.
+    """
+    if age_column not in df.columns:
+        raise ValueError(f"Column '{age_column}' not found in the DataFrame")
+
+    filtered_df = df[df[age_column] >= min_age].copy()
+    return filtered_df
