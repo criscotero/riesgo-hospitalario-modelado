@@ -1,0 +1,18 @@
+{
+    "name": "Hospitalization prediction for elderly population",
+    "image": "mcr.microsoft.com/devcontainers/python:3.12-bullseye",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.black-formatter",
+                "ms-toolsai.jupyter"
+            ],
+            "settings": {
+                "python.formatting.provider": "black",
+                "editor.formatOnSave": true
+            }
+        }
+    },
+    "postCreateCommand": [],
+    "remoteUser": "vscode"
+}
