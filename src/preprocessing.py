@@ -292,6 +292,89 @@ def run_preprocessing_pipeline(df, missing_percentage_threshold=70, target_colum
     # df = extract_respondent_data(df)
     # print(f"Shape after filtering respondents: {df.shape}")
 
+    # Remove highly correlated proxy columns to target variable hspnit1y doctim1y
+    df = df.drop(columns=['hspnit1y', 'doctim1y'], errors='ignore')
+
+    # Step 2: Filter for elderly individuals aged 50 or older
+    print("Filtering data for elderly individuals (aged 50+)...")
+    df = filter_by_age(df)
+    print(f"Shape after filtering by age: {df.shape}")
+
+    # Step 3: Exclude individuals who passed away
+    print("Excluding individuals who passed away during the waves...")
+    df = filter_alive_respondents(df)
+    print(f"Shape after filtering alive respondents: {df.shape}")
+
+    # Step 4: Remove columns with too many missing values
+    print(
+        f"Removing columns with more than {missing_percentage_threshold}% missing values...")
+    df = remove_columns_with_missing_values(df, missing_percentage_threshold)
+    print(f"Shape after removing columns: {df.shape}")
+
+    # Step 5: Process the target column
+    print(f"Processing the target column '{target_column}'...")
+    df = process_target_column(df, target_column)
+    print(f"Shape after processing target column: {df.shape}")
+
+    return df
+
+
+def handle_all_missing_as_category(df, target_column='r5hosp1y', missing_label='Missing', numerical_fill_value=-1):
+    """
+    Treat missing values (NaN) in all columns as an additional category for categorical columns
+    and assign a default value (-1) for numerical columns, excluding the target column.
+
+    Args:
+        df (pd.DataFrame): The input dataset.
+        target_column (str): The column to exclude from missing value handling.
+        missing_label (str): The label to replace missing values with in categorical columns (default: 'Missing').
+        numerical_fill_value (int or float): The value to replace missing values with in numerical columns (default: -1).
+
+    Returns:
+        pd.DataFrame: The dataset with missing values handled appropriately.
+    """
+    df = df.copy()
+
+    for col in df.columns:
+        if col == target_column:
+            # Skip the target column
+            continue
+        if df[col].dtype.name == 'category' or df[col].dtype == object:
+            # Handle categorical columns
+            if df[col].dtype.name == 'category':
+                # Add the missing label to the categories if the column is categorical
+                df[col] = df[col].cat.add_categories([missing_label])
+            # Replace missing values with the missing label
+            df[col] = df[col].fillna(missing_label)
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            # Handle numerical columns
+            df[col] = df[col].fillna(numerical_fill_value)
+
+    return df
+
+
+def run_preprocessing_pipeline_respondent_only(df, missing_percentage_threshold=70, target_column='r5hosp1y'):
+    """
+    Runs the entire preprocessing pipeline on the input dataset.
+
+    Args:
+        df (pd.DataFrame): The raw input dataset.
+        missing_percentage_threshold (int): Threshold for dropping columns with missing values.
+        target_column (str): The target column for prediction.
+
+    Returns:
+        pd.DataFrame: Preprocessed and cleaned dataset.
+    """
+    print("Starting data preprocessing pipeline...\n")
+
+    # Step 1: Include only direct respondents
+    print("Filtering data for direct respondents...")
+    df = extract_respondent_data(df)
+    print(f"Shape after filtering respondents: {df.shape}")
+
+    # Remove highly correlated proxy columns to target variable hspnit1y doctim1y
+    df = df.drop(columns=['r5hspnit1y', 'r5doctim1y'], errors='ignore')
+
     # Step 2: Filter for elderly individuals aged 50 or older
     print("Filtering data for elderly individuals (aged 50+)...")
     df = filter_by_age(df)
@@ -333,9 +416,9 @@ Returns:
 """
 
 
-def stack_all_waves_respondent_data(file_path, output_path="stacked_data.csv"):
+def stack_all_waves_respondent_data(raw_df, output_path="stacked_data.csv"):
     # Load the dataset
-    df = pd.read_csv(file_path)
+    df = raw_df
 
     # Identify columns that start with 'r' followed by a number from 1 to 5
     pattern = re.compile(r'^r[1-5]')
