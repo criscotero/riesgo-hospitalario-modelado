@@ -203,6 +203,7 @@ def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimator
         save_path, "mi_selector.pkl"))
     joblib.dump(pipeline.named_steps['rf_selection'], os.path.join(
         save_path, "rf_selector.pkl"))
+    joblib.dump(pipeline, os.path.join(save_path, "pipeline.pkl"))
 
     # Ensure the importance scores align with the selected features
     feature_importance_values = rf_selector.estimator_.feature_importances_[
