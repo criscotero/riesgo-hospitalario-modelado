@@ -1,9 +1,5 @@
 import os
-from sklearn.preprocessing import StandardScaler, OrdinalEncoder
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
 import joblib
-from sklearn.feature_selection import mutual_info_classif
 import pandas as pd
 import numpy as np
 from sklearn.impute import SimpleImputer
@@ -13,55 +9,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-
-
-def select_top_features_tree(df: pd.DataFrame, target: str, n_features: int = 20):
-    """
-    Selects the top `n_features` most important features using a Random Forest.
-
-    Args:
-        df (pd.DataFrame): The dataset containing features and target.
-        target (str): The target variable name.
-        n_features (int): Number of features to select.
-
-    Returns:
-        List of selected feature names.
-    """
-    X = df.drop(columns=[target])  # Features
-    y = df[target]  # Target variable
-
-    # Train a Random Forest to compute feature importance
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X, y)
-
-    # Get feature importance and sort
-    feature_importances = pd.Series(
-        model.feature_importances_, index=X.columns)
-    top_features = feature_importances.nlargest(n_features).index.tolist()
-
-    return top_features
-
-
-def select_top_features_mi(df: pd.DataFrame, target: str, n_features: int = 20):
-    """
-    Selects the top `n_features` based on Mutual Information.
-
-    Args:
-        df (pd.DataFrame): The dataset containing features and target.
-        target (str): The target variable name.
-        n_features (int): Number of features to select.
-
-    Returns:
-        List of selected feature names.
-    """
-    X = df.drop(columns=[target])  # Features
-    y = df[target]  # Target variable
-
-    mi_scores = mutual_info_classif(X, y)
-    mi_series = pd.Series(mi_scores, index=X.columns)
-
-    top_features = mi_series.nlargest(n_features).index.tolist()
-    return top_features
+from imblearn.over_sampling import SMOTE
 
 
 def identify_feature_types(df, target_column):
@@ -116,7 +64,9 @@ def preprocess_and_split(df, target_column, test_size=0.2, random_state=42):
     # Transform data
     X_train_encoded = preprocessor.fit_transform(X_train)
     X_test_encoded = preprocessor.transform(X_test)
-    feature_names = preprocessor.get_feature_names_out()
+
+    # Preserve original column names instead of `cat__` and `num__` prefixes
+    feature_names = categorical_cols + numerical_cols
 
     # Convert to DataFrame
     X_train_encoded_df = pd.DataFrame(X_train_encoded, columns=feature_names)
@@ -140,32 +90,25 @@ def apply_smote(X_train, y_train, random_state=42, minority_ratio=1.0):
     - y_train_resampled: The resampled labels.
     """
     from collections import Counter
-    from imblearn.over_sampling import SMOTE
 
     # Get class distribution
     class_counts = Counter(y_train)
-    # The majority class (likely class 0)
     majority_class = max(class_counts, key=class_counts.get)
-    # The minority class (likely class 1)
     minority_class = min(class_counts, key=class_counts.get)
 
-    # Compute desired number of minority samples
     majority_count = class_counts[majority_class]
     new_minority_count = int(majority_count * minority_ratio)
 
-    # Set sampling strategy for SMOTE (only affecting class 1)
     sampling_strategy = {minority_class: new_minority_count}
 
     print(f"Original class distribution: {class_counts}")
     print(
         f"Applying SMOTE with target class distribution: {sampling_strategy}")
 
-    # Apply SMOTE
     smote = SMOTE(sampling_strategy=sampling_strategy,
                   random_state=random_state)
     X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
 
-    # Print new class distribution
     new_counts = Counter(y_train_resampled)
     print(f"New class distribution: {new_counts}")
 
@@ -174,15 +117,14 @@ def apply_smote(X_train, y_train, random_state=42, minority_ratio=1.0):
 
 def select_features_mutual_info(X_train, y_train, k=50):
     """Select the top K features based on Mutual Information."""
-    k = min(k, X_train.shape[1]
-            )  # Ensure k doesn't exceed the number of features
+    k = min(k, X_train.shape[1])
     mi_selector = SelectKBest(score_func=mutual_info_classif, k=k)
     X_train_selected = mi_selector.fit_transform(X_train, y_train)
-    selected_features = X_train.columns[mi_selector.get_support()]
 
-    print(f"\nSelected {len(selected_features)} features using Mutual Information:\n",
-          selected_features.tolist())
+    selected_features = np.array(X_train.columns)[
+        mi_selector.get_support()].tolist()
 
+    print("\nSelected features after Mutual Information:", selected_features)
     return X_train_selected, selected_features, mi_selector
 
 
@@ -192,11 +134,12 @@ def select_features_random_forest(X_train, y_train, n_estimators=100, random_sta
         n_estimators=n_estimators, random_state=random_state), threshold="median")
 
     X_train_final = rf_selector.fit_transform(X_train, y_train)
-    final_selected_features = X_train.columns[rf_selector.get_support()]
 
-    print(f"\nSelected {len(final_selected_features)} features after Random Forest selection:\n",
-          final_selected_features.tolist())
+    selected_indices = rf_selector.get_support(indices=True)
+    final_selected_features = np.array(X_train.columns)[
+        selected_indices].tolist()
 
+    print("\nSelected features after Random Forest:", final_selected_features)
     return X_train_final, final_selected_features, rf_selector
 
 
@@ -218,6 +161,8 @@ def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimator
     X_train, X_test, y_train, y_test, preprocessor = preprocess_and_split(
         df, target_column, test_size, random_state)
 
+    print("\nColumns after preprocessing:", X_train.columns.tolist())
+
     print("Applying SMOTE...")
     X_train_resampled, y_train_resampled = apply_smote(
         X_train, y_train, random_state)
@@ -226,13 +171,24 @@ def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimator
     X_train_selected, selected_features, mi_selector = select_features_mutual_info(
         X_train_resampled, y_train_resampled, mi_k)
 
+    X_train_selected_df = pd.DataFrame(
+        X_train_selected, columns=selected_features)
+
     print("Selecting features using Random Forest model...")
     X_train_final, final_selected_features, rf_selector = select_features_random_forest(
-        pd.DataFrame(
-            X_train_selected, columns=selected_features), y_train_resampled, rf_n_estimators, random_state
-    )
+        X_train_selected_df, y_train_resampled, rf_n_estimators, random_state)
 
-    # Train final pipeline
+    valid_final_features = [
+        col for col in final_selected_features if col in X_train_selected_df.columns]
+
+    if not valid_final_features:
+        raise ValueError(
+            "No valid features found for training. Check feature selection steps.")
+
+    X_train_final_df = X_train_selected_df[valid_final_features]
+
+    print("\nFinal selected features for training:", valid_final_features)
+
     print("Training final pipeline...")
     pipeline = Pipeline([
         ('preprocessing', preprocessor),
@@ -242,17 +198,15 @@ def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimator
             n_estimators=rf_n_estimators, random_state=random_state))
     ])
 
-    pipeline.fit(X_train_resampled, y_train_resampled)
+    pipeline.fit(X_train_final_df, y_train_resampled)
 
-    # Save pipeline
     print("Saving pipeline and feature selection models...")
     save_pipeline(pipeline, preprocessor, mi_selector, rf_selector, save_path)
 
-    # Create feature importance DataFrame
     feature_importance_values = rf_selector.estimator_.feature_importances_[
-        :len(final_selected_features)]
+        :len(valid_final_features)]
     feature_description = pd.DataFrame({
-        'Feature': final_selected_features,
+        'Feature': valid_final_features,
         'Importance': feature_importance_values
     }).sort_values(by='Importance', ascending=False)
 
