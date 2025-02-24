@@ -153,7 +153,7 @@ def save_pipeline(pipeline, preprocessor, mi_selector, rf_selector, save_path):
     joblib.dump(pipeline, os.path.join(save_path, "pipeline.pkl"))
 
 
-def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimators=100, test_size=0.2, random_state=42, save_path="model_assets"):
+def create_feature_selection_pipelinex(df, target_column, mi_k=50, rf_n_estimators=100, test_size=0.2, random_state=42, save_path="model_assets"):
     """
     Main function to create a feature selection pipeline.
     """
@@ -212,3 +212,142 @@ def create_feature_selection_pipeline(df, target_column, mi_k=50, rf_n_estimator
 
     print("Pipeline training completed.")
     return pipeline, X_train, X_test, y_train, y_test, feature_description
+
+
+def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
+                                      mi_k: int = 100, rf_n_estimators: int = 100,
+                                      test_size: float = 0.2, random_state: int = 42,
+                                      save_path: str = "model_assets"):
+    """
+    Creates a feature selection pipeline with SMOTE for class 1 oversampling.
+    """
+
+    print("\n🚀 Starting Feature Selection Pipeline...\n")
+    os.makedirs(save_path, exist_ok=True)
+
+    # Identify categorical and numerical columns
+    categorical_cols = df.select_dtypes(
+        include=['object', 'category']).columns.tolist()
+    numerical_cols = df.select_dtypes(
+        include=['int64', 'float64']).columns.tolist()
+
+    categorical_cols = [
+        col for col in categorical_cols if col != target_column]
+    numerical_cols = [col for col in numerical_cols if col != target_column]
+
+    print(
+        f"🔹 Found {len(categorical_cols)} categorical features and {len(numerical_cols)} numerical features.")
+
+    # Define preprocessing steps
+    categorical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy="constant", fill_value="Missing")),
+        ('encoder', OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ])
+    numerical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy="mean")),
+        ('scaler', StandardScaler())
+    ])
+    preprocessor = ColumnTransformer([
+        ('cat', categorical_pipeline, categorical_cols),
+        ('num', numerical_pipeline, numerical_cols)
+    ])
+
+    # Feature selection steps
+    mi_selector = SelectKBest(score_func=mutual_info_classif, k=min(
+        mi_k, len(categorical_cols + numerical_cols)))
+    rf_selector = SelectFromModel(RandomForestClassifier(
+        n_estimators=rf_n_estimators, random_state=random_state), threshold="median")
+
+    # Full pipeline (without SMOTE yet)
+    pipeline = Pipeline([
+        ('preprocessing', preprocessor),
+        ('mi_selection', mi_selector),
+        ('rf_selection', rf_selector),
+        ('classifier', RandomForestClassifier(
+            n_estimators=rf_n_estimators, random_state=random_state))
+    ])
+
+    # Split dataset
+    print("📊 Splitting dataset into training and testing sets...")
+    X = df.drop(columns=[target_column])
+    y = df[target_column]
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y)
+
+    print(
+        f"✅ Data split complete: {X_train.shape[0]} training samples, {X_test.shape[0]} testing samples.")
+
+    # Apply preprocessing before SMOTE
+    print("⚙️ Applying preprocessing transformation...")
+    preprocessor = pipeline.named_steps['preprocessing']
+    X_train_preprocessed = preprocessor.fit_transform(X_train)
+    X_test_preprocessed = preprocessor.transform(X_test)
+
+    # Get transformed feature names from ColumnTransformer
+    transformed_feature_names = preprocessor.get_feature_names_out()
+    print(
+        f"✅ Preprocessing complete. Transformed feature names:\n{transformed_feature_names}")
+
+    # Apply SMOTE to training data only
+    print("⚖️ Applying SMOTE to balance class distribution in training set...")
+    smote = SMOTE(sampling_strategy={1: int(
+        sum(y_train == 0))}, random_state=random_state)
+    X_train_resampled, y_train_resampled = smote.fit_resample(
+        X_train_preprocessed, y_train)
+
+    print(
+        f"✅ SMOTE applied: {sum(y_train_resampled == 0)} class 0 samples, {sum(y_train_resampled == 1)} class 1 samples.")
+
+    # Convert to DataFrame for feature selection
+    X_train_resampled_df = pd.DataFrame(
+        X_train_resampled, columns=transformed_feature_names)
+
+    # Fit the feature selection pipeline (excluding preprocessing)
+    print("🚀 Fitting the feature selection pipeline...")
+    pipeline.steps = pipeline.steps[1:]  # Remove preprocessing step
+    pipeline.fit(X_train_resampled_df, y_train_resampled)
+    print("✅ Pipeline training complete.")
+
+    # Save preprocessing steps
+    print(f"💾 Saving preprocessing steps to {save_path}...")
+    joblib.dump(pipeline.named_steps['mi_selection'], os.path.join(
+        save_path, "mi_selector.pkl"))
+    joblib.dump(pipeline.named_steps['rf_selection'], os.path.join(
+        save_path, "rf_selector.pkl"))
+
+    # Extract selected feature names after Mutual Information selection
+    print("📊 Extracting selected features after Mutual Information selection...")
+    mi_support_mask = pipeline.named_steps['mi_selection'].get_support()
+    mi_selected_features = transformed_feature_names[mi_support_mask]
+    print(
+        f"🔹 {len(mi_selected_features)} features selected after Mutual Information:")
+    # Print full list of MI-selected features
+    print(mi_selected_features.tolist())
+
+    # Extract final selected features after Random Forest selection
+    rf_support_mask = pipeline.named_steps['rf_selection'].get_support()
+    if len(mi_selected_features) != len(rf_support_mask):
+        raise ValueError(
+            f"Feature selection step mismatch: {len(mi_selected_features)} MI-selected features, but {len(rf_support_mask)} RF-selected features."
+        )
+
+    selected_features = np.array(mi_selected_features)[rf_support_mask]
+    print(
+        f"🌲 {len(selected_features)} final features selected after Random Forest selection:")
+    # Print full list of RF-selected features
+    print(selected_features.tolist())
+
+    # Extract feature importances from the trained random forest model
+    feature_importance_values = pipeline.named_steps['rf_selection'].estimator_.feature_importances_
+    rf_selected_importances = feature_importance_values[rf_support_mask]
+
+    # Create a dataframe describing selected features
+    feature_description = pd.DataFrame({
+        'Feature': selected_features,
+        'Importance': rf_selected_importances
+    }).sort_values(by='Importance', ascending=False)
+
+    print(f"🔍 {len(selected_features)} final selected features and their importance:")
+    print(feature_description)
+
+    return pipeline, X_train_resampled, X_test_preprocessed, y_train_resampled, y_test, feature_description
