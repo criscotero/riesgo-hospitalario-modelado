@@ -308,13 +308,6 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     pipeline.fit(X_train_resampled_df, y_train_resampled)
     print("✅ Pipeline training complete.")
 
-    # Save preprocessing steps
-    print(f"💾 Saving preprocessing steps to {save_path}...")
-    joblib.dump(pipeline.named_steps['mi_selection'], os.path.join(
-        save_path, "mi_selector.pkl"))
-    joblib.dump(pipeline.named_steps['rf_selection'], os.path.join(
-        save_path, "rf_selector.pkl"))
-
     # Extract selected feature names after Mutual Information selection
     print("📊 Extracting selected features after Mutual Information selection...")
     mi_support_mask = pipeline.named_steps['mi_selection'].get_support()
@@ -341,6 +334,14 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     feature_importance_values = pipeline.named_steps['rf_selection'].estimator_.feature_importances_
     rf_selected_importances = feature_importance_values[rf_support_mask]
 
+    # Keep the preprocessor in the pipeline
+    final_pipeline = Pipeline([
+        ('preprocessing', preprocessor),  # Add back preprocessing
+        ('mi_selection', pipeline.named_steps['mi_selection']),
+        ('rf_selection', pipeline.named_steps['rf_selection']),
+        ('classifier', pipeline.named_steps['classifier'])  # Keep classifier
+    ])
+
     # Create a dataframe describing selected features
     feature_description = pd.DataFrame({
         'Feature': selected_features,
@@ -350,4 +351,4 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     print(f"🔍 {len(selected_features)} final selected features and their importance:")
     print(feature_description)
 
-    return pipeline, X_train_resampled, X_test_preprocessed, y_train_resampled, y_test, feature_description
+    return final_pipeline, X_train_resampled, X_test_preprocessed, y_train_resampled, y_test, feature_description
