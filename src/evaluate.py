@@ -1,75 +1,117 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+import warnings
+import time
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from sklearn.metrics import (recall_score, roc_auc_score, precision_score,
+                             f1_score, accuracy_score, make_scorer)
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 
-# Example function to evaluate models
+
+warnings.filterwarnings("ignore")  # Suppress warnings
 
 
-import os
-import joblib
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+def find_best_model_for_recall(X_train, y_train, X_test, y_test, param_grids, classifiers, cv=5, n_iter=20, random_state=42):
+    """
+    Optimizes hyperparameters to maximize recall for class 1 and stores results in a DataFrame.
 
+    Parameters:
+    - X_train, y_train: Training data
+    - X_test, y_test: Testing data
+    - param_grids: Dictionary of hyperparameter grids
+    - classifiers: Dictionary of models
+    - cv: Number of cross-validation folds
+    - n_iter: Number of random search iterations per model
+    - random_state: Random state for reproducibility
 
-def evaluate_models(models, param_grids, X_train, X_test, y_train, y_test, save_path="models"):
-    """Evaluate models using Grid Search, save results, and store trained models for production."""
+    Returns:
+    - Best model, best parameters, best recall score
+    - DataFrame containing recall, ROC AUC, precision, F1-score, accuracy, and best hyperparameters for each model
+    """
 
-    # Ensure save directory exists
-    os.makedirs(save_path, exist_ok=True)
+    results_list = []
+    best_model = None
+    best_params = None
+    best_recall = 0
+    best_model_name = None
 
-    results = []
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    # Optimize for recall of class 1
+    scoring = make_scorer(recall_score, average="binary", pos_label=1)
+    cv_strategy = StratifiedKFold(
+        n_splits=cv, shuffle=True, random_state=random_state)
 
-    for name, model in models.items():
-        print(f"Training and tuning {name}...")
+    for model_name, model in classifiers.items():
+        if model_name not in param_grids:
+            continue
 
-        # Perform Grid Search with Cross-Validation
-        grid_search = GridSearchCV(
-            model, param_grids.get(name, {}), cv=cv, scoring='recall', n_jobs=-1
+        print(f"\n🔍 Tuning {model_name}...")
+        param_grid = param_grids[model_name]
+
+        # Perform RandomizedSearchCV
+        random_search = RandomizedSearchCV(
+            estimator=model,
+            param_distributions=param_grid,
+            n_iter=n_iter,
+            scoring=scoring,
+            cv=cv_strategy,
+            random_state=random_state,
+            n_jobs=-1,
+            verbose=1
         )
-        grid_search.fit(X_train, y_train)
-        best_model = grid_search.best_estimator_
 
-        # Predictions
-        y_pred = best_model.predict(X_test)
-        y_pred_proba = best_model.predict_proba(X_test)[:, 1] if hasattr(
-            best_model, "predict_proba") else None
+        start_time = time.time()
+        random_search.fit(X_train, y_train)
+        elapsed_time = time.time() - start_time
+
+        best_estimator = random_search.best_estimator_
+        best_hyperparams = random_search.best_params_
+
+        # Predictions on the test set
+        y_pred = best_estimator.predict(X_test)
+        y_prob = best_estimator.predict_proba(X_test)[:, 1] if hasattr(
+            best_estimator, "predict_proba") else best_estimator.decision_function(X_test)
 
         # Compute evaluation metrics
-        accuracy = accuracy_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred, pos_label=1)
+        roc_auc = roc_auc_score(y_test, y_prob)
         precision = precision_score(
-            y_test, y_pred, average='binary', zero_division=0)
-        recall = recall_score(
-            y_test, y_pred, average='binary', zero_division=0)
-        f1 = f1_score(y_test, y_pred, average='binary', zero_division=0)
-        auc_roc = roc_auc_score(
-            y_test, y_pred_proba) if y_pred_proba is not None else np.nan
+            y_test, y_pred, pos_label=1, zero_division=0)
+        f1 = f1_score(y_test, y_pred, pos_label=1)
+        accuracy = accuracy_score(y_test, y_pred)
 
-        # Append results
-        results.append({
-            'Model': name,
-            'Best Params': grid_search.best_params_,
-            'Accuracy': accuracy,
-            'Precision': precision,
-            'Recall': recall,
-            'F1-Score': f1,
-            'AUC-ROC': auc_roc
+        print(f"✅ {model_name} - Recall: {recall:.4f}, ROC AUC: {roc_auc:.4f}, Precision: {precision:.4f}, F1-score: {f1:.4f}, Accuracy: {accuracy:.4f} | Time: {elapsed_time:.2f}s")
+
+        # Store results
+        results_list.append({
+            "Model": model_name,
+            "Best Recall": recall,
+            "ROC AUC": roc_auc,
+            "Precision": precision,
+            "F1-score": f1,
+            "Accuracy": accuracy,
+            "Best Parameters": best_hyperparams
         })
 
-        # Save the trained model
-        model_filename = os.path.join(
-            save_path, f"{name.replace(' ', '_')}.pkl")
-        joblib.dump(best_model, model_filename)
-        print(f"Saved {name} model to {model_filename}")
+        # Update best model if current one is better
+        if recall > best_recall:
+            best_model = best_estimator
+            best_params = best_hyperparams
+            best_recall = recall
+            best_model_name = model_name
 
-    # Convert results to DataFrame and save to CSV
-    results_df = pd.DataFrame(results)
-    results_csv = os.path.join(save_path, "results.csv")
-    results_df.to_csv(results_csv, index=False)
+    # Convert results to DataFrame
+    results_df = pd.DataFrame(results_list).sort_values(
+        by="Best Recall", ascending=False)
 
-    print(f"\nAll results saved to {results_csv}")
+    print("\n🏆 Best Model Found:")
+    print(f"📌 Model: {best_model_name}")
+    print(f"📊 Best Recall Score: {best_recall:.4f}")
+    print(f"⚙️ Best Hyperparameters: {best_params}")
 
-    return results_df.sort_values(by='Recall', ascending=False)
+    return best_model, best_params, best_recall, results_df

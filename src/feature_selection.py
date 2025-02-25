@@ -220,6 +220,7 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
                                       save_path: str = "model_assets"):
     """
     Creates a feature selection pipeline with SMOTE for class 1 oversampling.
+    Returns Pandas DataFrames instead of NumPy arrays.
     """
 
     print("\n🚀 Starting Feature Selection Pipeline...\n")
@@ -288,24 +289,31 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     print(
         f"✅ Preprocessing complete. Transformed feature names:\n{transformed_feature_names}")
 
+    # Convert preprocessed data into DataFrame
+    X_train_preprocessed_df = pd.DataFrame(
+        X_train_preprocessed, columns=transformed_feature_names)
+    X_test_preprocessed_df = pd.DataFrame(
+        X_test_preprocessed, columns=transformed_feature_names)
+
     # Apply SMOTE to training data only
     print("⚖️ Applying SMOTE to balance class distribution in training set...")
     smote = SMOTE(sampling_strategy={1: int(
         sum(y_train == 0))}, random_state=random_state)
     X_train_resampled, y_train_resampled = smote.fit_resample(
-        X_train_preprocessed, y_train)
+        X_train_preprocessed_df, y_train)
+
+    # Convert resampled data into DataFrame
+    X_train_resampled_df = pd.DataFrame(
+        X_train_resampled, columns=transformed_feature_names)
+    y_train_resampled_df = pd.Series(y_train_resampled)
 
     print(
         f"✅ SMOTE applied: {sum(y_train_resampled == 0)} class 0 samples, {sum(y_train_resampled == 1)} class 1 samples.")
 
-    # Convert to DataFrame for feature selection
-    X_train_resampled_df = pd.DataFrame(
-        X_train_resampled, columns=transformed_feature_names)
-
     # Fit the feature selection pipeline (excluding preprocessing)
     print("🚀 Fitting the feature selection pipeline...")
     pipeline.steps = pipeline.steps[1:]  # Remove preprocessing step
-    pipeline.fit(X_train_resampled_df, y_train_resampled)
+    pipeline.fit(X_train_resampled_df, y_train_resampled_df)
     print("✅ Pipeline training complete.")
 
     # Extract selected feature names after Mutual Information selection
@@ -314,20 +322,17 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     mi_selected_features = transformed_feature_names[mi_support_mask]
     print(
         f"🔹 {len(mi_selected_features)} features selected after Mutual Information:")
-    # Print full list of MI-selected features
     print(mi_selected_features.tolist())
 
     # Extract final selected features after Random Forest selection
     rf_support_mask = pipeline.named_steps['rf_selection'].get_support()
     if len(mi_selected_features) != len(rf_support_mask):
         raise ValueError(
-            f"Feature selection step mismatch: {len(mi_selected_features)} MI-selected features, but {len(rf_support_mask)} RF-selected features."
-        )
+            f"Feature selection step mismatch: {len(mi_selected_features)} MI-selected features, but {len(rf_support_mask)} RF-selected features.")
 
     selected_features = np.array(mi_selected_features)[rf_support_mask]
     print(
         f"🌲 {len(selected_features)} final features selected after Random Forest selection:")
-    # Print full list of RF-selected features
     print(selected_features.tolist())
 
     # Extract feature importances from the trained random forest model
@@ -351,4 +356,4 @@ def create_feature_selection_pipeline(df: pd.DataFrame, target_column: str,
     print(f"🔍 {len(selected_features)} final selected features and their importance:")
     print(feature_description)
 
-    return final_pipeline, X_train_resampled, X_test_preprocessed, y_train_resampled, y_test, feature_description
+    return final_pipeline, X_train_resampled_df, X_test_preprocessed_df, y_train_resampled_df, y_test, feature_description
