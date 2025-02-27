@@ -1,0 +1,2 @@
+Model,Best Recall,ROC AUC,Precision,F1-score,Accuracy,Best Parameters
+Logistic Regression,0.6838882510524301,0.8188312429917655,0.30688648462991586,0.423660502607871,0.7720367591897974,"{'solver': 'saga', 'penalty': 'l2', 'max_iter': 500, 'C': 100}"

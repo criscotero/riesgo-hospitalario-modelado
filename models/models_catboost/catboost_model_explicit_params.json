@@ -1,0 +1,7 @@
+{
+    "iterations": 300,
+    "learning_rate": 0.3,
+    "depth": 9,
+    "l2_leaf_reg": 5,
+    "verbose": 0
+}

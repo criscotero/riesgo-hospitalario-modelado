@@ -1,0 +1,2 @@
+Model,Best Recall,ROC AUC,Precision,F1-score,Accuracy,Best Parameters
+KNeighbors,0.750478377344049,0.7156668516273111,0.18950521839969076,0.3026001080163568,0.5761909227306826,"{'weights': 'distance', 'n_neighbors': 9, 'metric': 'minkowski'}"
