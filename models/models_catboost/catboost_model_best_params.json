@@ -1,0 +1,9 @@
+{
+    "iterations": 500,
+    "learning_rate": 0.3,
+    "depth": 9,
+    "l2_leaf_reg": 10,
+    "verbose": 0,
+    "loss_function": "Logloss",
+    "scale_pos_weight": 20.0
+}
