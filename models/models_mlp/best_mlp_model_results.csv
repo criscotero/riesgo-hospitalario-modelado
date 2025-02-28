@@ -1,2 +1,0 @@
-Model,Best Recall,ROC AUC,Precision,F1-score,Accuracy,Best Parameters
-MLP,0.4355147340221967,0.7817494863993603,0.4863247863247863,0.4595194831415304,0.8744842460615154,"{'solver': 'sgd', 'learning_rate': 'adaptive', 'hidden_layer_sizes': (64, 32), 'alpha': 0.01, 'activation': 'tanh'}"
